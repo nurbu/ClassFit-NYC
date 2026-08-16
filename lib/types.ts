@@ -90,6 +90,43 @@ export interface Parcel {
 }
 
 /**
+ * One in-flight SCA capacity project (NYC Open Data dtmw-avzj) -- a funded,
+ * scheduled seat addition, as opposed to the speculative COLP land parcels.
+ */
+export interface CapacityProject {
+  project_id: string;
+  /** SCA's project name, e.g. "P.S. 206 ADDITION" or "P.S. @ PARCEL C". */
+  name: string;
+  /**
+   * "expansion" -- an addition/annex onto a school that already exists, so its
+   * seats go to that specific school.
+   * "new_school" -- a brand-new building, named for its address because it has
+   * no school yet. Its seats relieve the surrounding area, not one school.
+   */
+  project_type: "expansion" | "new_school";
+  /** The expanded school. Null on new-school builds and unattributed expansions. */
+  dbn: string | null;
+  /** That school's name as it appears in the schools table (SCA's is abbreviated). */
+  matched_school_name: string | null;
+  seats: number;
+  /** Anticipated opening, published as a bare year string e.g. "2026". */
+  anticipated_opening: string | null;
+  address: string | null;
+  borough: string | null;
+  /** Text: SCA mixes citywide pseudo-districts ("78Q") with numeric ones. */
+  district: string | null;
+  /** Null on the two rows the source publishes without coordinates. */
+  lat: number | null;
+  lng: number | null;
+  bbl: string | null;
+}
+
+/** A capacity project somewhere near a school, rather than attached to it. */
+export interface NearbyCapacityProject extends CapacityProject {
+  distanceMiles: number;
+}
+
+/**
  * Result of the HS physical-capacity check (lib/queries.ts computeHsPhysicalCapacity):
  * could this school's OWN classrooms hold everyone under cap if spread out?
  * Only computed for single-band 9-12 schools with real enrollment and

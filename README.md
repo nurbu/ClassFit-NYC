@@ -36,6 +36,7 @@ loads mock data using the identical schema.
 | 6 | Longer-term solutions: nearby-school redistribution + new construction | Detail page, under the toolkit — [components/LongerTermSolutions.tsx](components/LongerTermSolutions.tsx) |
 | 7 | Space toolkit: split a room, repurpose a room, extend the day, teachers needed | Detail page — [components/SpaceToolkit.tsx](components/SpaceToolkit.tsx); logic in [lib/roomSplit.ts](lib/roomSplit.ts), [lib/solver.ts](lib/solver.ts), [lib/schedule.ts](lib/schedule.ts), [lib/teachers.ts](lib/teachers.ts) |
 | 8 | Candidate sites for a new building | "New construction" section — [lib/queries.ts](lib/queries.ts) `findSiteCandidates` |
+| 8b | Funded SCA capacity projects — this school's own expansion, plus in-flight projects within 3 miles | "New construction" section — [lib/queries.ts](lib/queries.ts) `findCapacityProjects` |
 | 9 | Administrator guide (exemptions, staffing, restructuring, capital) | `/admin-guide` — [app/admin-guide/page.tsx](app/admin-guide/page.tsx) |
 
 ## Data model
@@ -49,6 +50,7 @@ Normalized SQLite schema (see [scripts/load-data.ts](scripts/load-data.ts)):
 - **room_inventory** — building_id (FK), room_type (Classroom/Kindergarten/Special Education/Science Lab/Computer Lab/Art/Music/Dance-Theatre/Library/Gym/Cafeteria/Auditorium/Multi-Purpose/Vacant), room_count, typical_capacity, **sqft** (median measured area) — used by the fast-track solver and the building-utilization summary
 - **room_capacity_detail** *(optional)* — building_id (FK), room_type, **sqft**, room_count — the same rooms as `room_inventory` but **not collapsed to a median**: one row per distinct measured area, so a building's 16 "classrooms" spanning 154–704 sqft stay 11 rows instead of becoming one. Rooms of one type in one building vary widely (~60% of buildings), and both the HS physical-capacity check and the room-splitting tool need to know which *individual* rooms are big enough. Covers every room type; each consumer filters to the slice it should count.
 - **parcels** *(optional)* — parcel_id (PK), description, district, lat, lng, lot_sqft, borough, **bbl**, ownership — city-owned land powering the candidate-site finder. `description` is COLP's address string and is **unreliable**: often a bare street name with no house number, and null for ~3%. `bbl` (Borough-Block-Lot) is present on 100% of rows and is the authoritative way to identify a lot.
+- **capacity_projects** *(optional)* — project_id (PK), name, **project_type** (`expansion` / `new_school`), dbn, matched_school_name, seats, anticipated_opening, address, borough, district, lat, lng, bbl — the SCA's in-flight capacity program. Deliberately **not** foreign-keyed to `schools`: `dbn` is null on every new-school build (they have no school yet). `district` is TEXT because the source mixes citywide pseudo-districts (`78M`, `78Q`) with numeric ones, and `lat`/`lng` are nullable because two rows publish no coordinates.
 
 ## Real NYC Open Data
 
@@ -75,11 +77,49 @@ Optionally set `NYC_APP_TOKEN` (a free Socrata app token) to raise rate limits.
 | Enrollment Capacity & Utilization ("Blue Book") | `gkd7-3vk7` | building capacity, enrollment, utilization, co-location |
 | DOE Building Space Usage | `wavz-fkw8` | **per-room measured length/width/area + room function** — the source of room square footage, cafeteria size, and vacant rooms |
 | City Owned and Leased Property (COLP) | `fn4k-qyk2` | real city-owned vacant parcels for the candidate-site finder |
+| Capacity Projects in Process Site Locations (SCA) | `dtmw-avzj` | funded, scheduled seat additions — school expansions and new buildings, with opening years |
 
 Current ingest: **1,490 schools, 2,341 class size records, 1,141 buildings,
-10,221 room-inventory rows, 3,132 city-owned parcels** — 100% of schools matched
-to Blue Book utilization data, and 99% of buildings matched to measured room
-data (1,047 with a cafeteria, 301 vacant rooms found).
+10,221 room-inventory rows, 3,132 city-owned parcels, 18 SCA capacity
+projects** — 100% of schools matched to Blue Book utilization data, and 99% of
+buildings matched to measured room data (1,047 with a cafeteria, 301 vacant
+rooms found).
+
+#### Capacity projects: expansions vs. new schools
+
+`dtmw-avzj` is small (18 projects, 8,205 seats, opening 2026–2028) but it is the
+only source in the app describing capacity that is actually **funded and
+scheduled**, as opposed to the speculative COLP parcels next to it in the UI.
+It has two kinds of row, distinguished only by how the project is named:
+
+- **Expansions** (9 projects, 3,445 seats) — `P.S. 206 ADDITION`,
+  `JOHN BOWNE HS ANNEX`. Seats bolted onto a school that already exists, so they
+  relieve *that school's* overcrowding directly.
+- **New schools** (9 projects, 4,760 seats) — `P.S. @ 46-10 70 STREET`,
+  `P.S. @ PARCEL C`. New buildings named for their address because no school has
+  been sited in them yet. They relieve the surrounding area, not one school.
+
+The school page keeps those strictly separate — a "+487 seats" headline means
+something very different to a principal depending on whether the seats land in
+their building or in a new school half a mile away.
+
+**Matching expansions to a DBN** ([scripts/fetch-capacity-projects.ts](scripts/fetch-capacity-projects.ts)):
+the source carries no DBN, only a project name, a district, and usually
+coordinates — so matching is name + proximity, and deliberately conservative
+(same borough, within 1 mile, ranked by school-number match → compatible school
+level → distance). The level check is load-bearing: `JOHN BOWNE HS ANNEX` sits
+almost equidistant between *John Bowne High School* and *P.S. 020 John Bowne*.
+Two rows publish **no coordinates**, and proximity is exactly what disambiguates
+them (`HARBOR HIGH SCHOOL ATHLETIC COMPLEX` scores identically against *Harbor
+Heights* and *Urban Assembly New York Harbor School* on name alone); those are
+resolved by a small, hand-verified override table rather than by loosening the
+matcher for every other row. All 9 expansions currently resolve. Any that
+doesn't is reported loudly at fetch time and written with an empty DBN — it
+still appears as an area project, it just isn't attributed to a school.
+
+The projects file can be refreshed on its own with `npm run fetch:projects`
+(it reads back `data/raw/school_locations.csv`, so a full `fetch:real` must have
+run at least once).
 
 ### Real data caveats
 
@@ -128,6 +168,16 @@ These are surfaced in the UI, not just documented here.
   doesn't render. See "What still needs you" below.
 - **COLP publishes no lot area**, so candidate sites show real city-owned
   vacant parcels without a buildable-seat estimate.
+- **SCA seat counts and opening years move.** `dtmw-avzj` is the authority's own
+  in-flight pipeline, and figures shift as projects pass through design,
+  procurement, and construction. The UI presents them as anticipated, not
+  committed. It also compares a project's seats only against the *building's*
+  Blue Book overcrowding — the like-for-like figure, since both are building
+  capacity — and never against a class-size gap, which new seats don't by
+  themselves fix.
+- **Expansion→school links are inferred, not published.** See "Capacity
+  projects" above: the source has no DBN. The match is conservative and
+  currently resolves all 9 expansions, but it is an inference and the UI says so.
 
 ### What still needs manual work
 
@@ -137,9 +187,9 @@ These sources are PDFs or web pages, not APIs. Drop them in and re-run
 1. **NYCPS Class Size Reduction Plan** (annual PDF) — the confirmed
    space-deficit school list. Fill `data/raw/space_deficit_schools.csv`
    (`DBN,Confirmed Space Deficit`).
-2. **SCA Five-Year Capital Plan** — funded new seats by school/district and
-   timeline, for the "slow" column of the solutions view. Not yet wired to a
-   table; currently shown as a generic estimate.
+2. **SCA Five-Year Capital Plan** — the *funded but not yet in process* pipeline.
+   Projects already in process now come from `dtmw-avzj` (see above); the
+   five-year plan PDF covers proposed seats further out, which no API exposes.
 3. **Installed cafeteria seat counts** — the app derives seating from measured
    area at the building-code occupant load, which overstates real furniture. An
    actual seat count per building would tighten the lunch calculator.

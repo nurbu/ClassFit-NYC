@@ -4,10 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
+/**
+ * One nav definition drives both surfaces: the desktop sidebar and the compact
+ * header nav that replaces it below `lg`. There is deliberately a SINGLE entry
+ * point to each destination -- an earlier version also carried a gradient
+ * "Administrator guide" pill in the header, which meant two competing buttons
+ * for the same page.
+ */
 const NAV = [
   {
     href: "/",
     label: "Map & Search",
+    shortLabel: "Map",
     match: (p: string) => p === "/" || p.startsWith("/school"),
     icon: (
       <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" className="w-[18px] h-[18px]">
@@ -18,6 +26,7 @@ const NAV = [
   {
     href: "/admin-guide",
     label: "Administrator Guide",
+    shortLabel: "Guide",
     match: (p: string) => p.startsWith("/admin-guide"),
     icon: (
       <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" className="w-[18px] h-[18px]">
@@ -37,27 +46,33 @@ function currentLabel(pathname: string) {
   return PAGE_LABELS.find(([match]) => match(pathname))?.[1] ?? "Overview";
 }
 
+function BrandMark() {
+  return (
+    <span className="grid place-items-center w-9 h-9 rounded-xl gradient-accent shrink-0">
+      <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" stroke="white" className="w-5 h-5">
+        <path d="M12 3 3 8l9 5 9-5-9-5Z" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M3 8v8l9 5 9-5V8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
+
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
 
   return (
     <div className="min-h-screen lg:flex">
-      {/* Sidebar */}
+      {/* Sidebar (>= lg) */}
       <aside className="hidden lg:flex lg:w-64 lg:shrink-0 lg:flex-col lg:sticky lg:top-0 lg:h-screen border-r border-white/10 px-4 py-6">
         <Link href="/" className="flex items-center gap-2.5 px-2 mb-8">
-          <span className="grid place-items-center w-9 h-9 rounded-xl gradient-accent shrink-0">
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" stroke="white" className="w-5 h-5">
-              <path d="M12 3 3 8l9 5 9-5-9-5Z" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M3 8v8l9 5 9-5V8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
+          <BrandMark />
           <span className="leading-tight">
             <span className="block text-sm font-semibold text-white">ClassFit NYC</span>
             <span className="block text-[11px] text-white/40">Mandate compliance explorer</span>
           </span>
         </Link>
 
-        <nav className="flex flex-col gap-1">
+        <nav aria-label="Main" className="flex flex-col gap-1">
           <div className="px-3 mb-1 text-[11px] font-medium uppercase tracking-wider text-white/35">
             Main menu
           </div>
@@ -67,12 +82,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                aria-current={active ? "page" : undefined}
+                className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                   active
                     ? "bg-white/10 text-white"
                     : "text-white/55 hover:text-white hover:bg-white/5"
                 }`}
               >
+                {active && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-violet-400"
+                  />
+                )}
                 <span className={active ? "text-violet-300" : "text-white/40"}>{item.icon}</span>
                 {item.label}
               </Link>
@@ -94,29 +116,51 @@ export default function AppShell({ children }: { children: ReactNode }) {
       {/* Main column */}
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="sticky top-0 z-[1000] border-b border-white/10 bg-[#0d0817]/70 backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-4 px-4 sm:px-6 py-3.5">
-            <div className="min-w-0">
-              <div className="text-[11px] text-white/40 truncate">
-                ClassFit NYC / <span className="text-white/70">{currentLabel(pathname)}</span>
-              </div>
-              <div className="lg:hidden flex items-center gap-2 mt-1">
-                <span className="text-sm font-semibold text-white">ClassFit NYC</span>
-              </div>
-            </div>
-            <nav className="lg:hidden flex items-center gap-3 text-xs font-medium text-white/60 shrink-0">
-              <Link href="/" className="hover:text-white">
-                Map
-              </Link>
-              <Link href="/admin-guide" className="hover:text-white">
-                Guide
-              </Link>
-            </nav>
-            <Link
-              href="/admin-guide"
-              className="hidden sm:inline-flex items-center gap-1.5 rounded-full gradient-accent text-white text-xs font-semibold px-4 py-2 shadow-lg shadow-violet-900/30 hover:opacity-90 transition-opacity shrink-0"
-            >
-              Administrator guide
+          <div className="flex items-center justify-between gap-4 px-4 sm:px-6 h-14">
+            {/* Below lg the sidebar is gone, so the header carries the brand;
+                at lg and up it carries the breadcrumb instead. */}
+            <Link href="/" className="lg:hidden flex items-center gap-2.5 min-w-0">
+              <BrandMark />
+              <span className="text-sm font-semibold text-white truncate">ClassFit NYC</span>
             </Link>
+
+            <nav aria-label="Breadcrumb" className="hidden lg:flex items-center gap-1.5 text-[13px] min-w-0">
+              <Link href="/" className="text-white/40 hover:text-white/70 transition-colors">
+                ClassFit NYC
+              </Link>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                strokeWidth="2"
+                stroke="currentColor"
+                aria-hidden
+                className="w-3.5 h-3.5 text-white/25 shrink-0"
+              >
+                <path d="m9 5 7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span aria-current="page" className="font-medium text-white/80 truncate">
+                {currentLabel(pathname)}
+              </span>
+            </nav>
+
+            {/* Compact nav standing in for the sidebar below lg. */}
+            <nav aria-label="Main" className="lg:hidden flex items-center gap-1 shrink-0">
+              {NAV.map((item) => {
+                const active = item.match(pathname);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      active ? "bg-white/10 text-white" : "text-white/55 hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    {item.shortLabel}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
         </header>
         <main className="flex-1 flex flex-col min-w-0">{children}</main>

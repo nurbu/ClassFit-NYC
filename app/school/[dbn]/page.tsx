@@ -1,6 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getSchoolDetail, findNearbyCapacityOptions, findSiteCandidates } from "@/lib/queries";
+import {
+  getSchoolDetail,
+  findNearbyCapacityOptions,
+  findSiteCandidates,
+  findCapacityProjects,
+} from "@/lib/queries";
 import {
   getComplianceStatus,
   plainLanguageStatus,
@@ -46,6 +51,12 @@ export default async function SchoolDetailPage({
   const repurposeSuggestions = generateFastTrackSuggestions(bands, rooms);
   const nearbyOptions = findNearbyCapacityOptions(school.dbn).slice(0, 8);
   const siteCandidates = findSiteCandidates(school.dbn).slice(0, 3);
+  const capacityProjects = findCapacityProjects(school.dbn);
+  // Students the BUILDING is over its Blue Book target today -- the only
+  // like-for-like comparison against an SCA seat count, which is also a
+  // building-capacity figure. Null (rather than 0) when there's no Blue Book
+  // row, so the panel stays quiet instead of implying the gap is zero.
+  const buildingShortfall = building ? Math.max(0, building.enrollment - building.capacity) : null;
 
   return (
     <div className="mx-auto max-w-4xl w-full px-6 py-6 space-y-6">
@@ -106,8 +117,8 @@ export default async function SchoolDetailPage({
               building can only seat ~{physicalCapacityCheck.totalCapacity.toLocaleString()} students
               under the mandate cap of {physicalCapacityCheck.targetCap} — short by{" "}
               {physicalCapacityCheck.excessStudents.toLocaleString()} students, or roughly{" "}
-              {physicalCapacityCheck.classroomsNeeded} more classroom
-              {physicalCapacityCheck.classroomsNeeded === 1 ? "" : "s"}.
+              {physicalCapacityCheck.classroomsNeeded}{" "}
+              {physicalCapacityCheck.classroomsNeeded === 1 ? "more classroom" : "more classrooms"}.
             </>
           )}
           <p className="mt-1.5 text-xs opacity-80">
@@ -259,7 +270,12 @@ export default async function SchoolDetailPage({
         />
       </section>
 
-      <LongerTermSolutions nearbyOptions={nearbyOptions} siteCandidates={siteCandidates} />
+      <LongerTermSolutions
+        nearbyOptions={nearbyOptions}
+        siteCandidates={siteCandidates}
+        capacityProjects={capacityProjects}
+        buildingShortfall={buildingShortfall}
+      />
 
     </div>
   );

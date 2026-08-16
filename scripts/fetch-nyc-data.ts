@@ -15,6 +15,10 @@
  *   gkd7-3vk7  Enrollment Capacity And Utilization Reports ("Blue Book", data as of 2023-01)
  *              -> building capacity/enrollment/utilization, co-location,
  *                 cluster (specialty) room counts
+ *   dtmw-avzj  Capacity Projects in Process Site Locations (SCA)
+ *              -> in-flight additions/annexes and new school buildings, with
+ *                 seat counts and anticipated opening years. Fetched and
+ *                 matched to schools by scripts/fetch-capacity-projects.ts.
  *   wavz-fkw8  DOE Building Space Usage (latest snapshot; ~117k rooms)
  *              -> per-ROOM length/width/area + room function, keyed by bldg_id.
  *                 This is the real source of room square footage and of
@@ -46,6 +50,7 @@
  */
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
+import { writeCapacityProjects } from "./fetch-capacity-projects";
 
 const RAW_DIR = join(process.cwd(), "data", "raw");
 const SOCRATA = "https://data.cityofnewyork.us/resource";
@@ -581,6 +586,11 @@ async function main() {
   // ---------- emit space_deficit_schools.csv (empty) ----------
   // Published only inside the annual NYCPS Class Size Reduction Plan PDF.
   writeCsv("space_deficit_schools.csv", ["DBN", "Confirmed Space Deficit"], []);
+
+  // ---------- emit capacity_projects.csv ----------
+  // Runs last: it matches SCA projects against school_locations.csv, which is
+  // only on disk once the block above has written it.
+  await writeCapacityProjects();
 
   // ---------- report ----------
   const missingBuilding = emittedSchools.filter((s) => !s.buildingId).length;

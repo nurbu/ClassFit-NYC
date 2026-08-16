@@ -19,6 +19,9 @@
  *     Building ID, Room Type, Sqft, Room Count
  *   nearby_parcels.csv (optional -- powers the real-estate candidate finder):
  *     Parcel ID, Description, District, Latitude, Longitude, Lot Area Sqft, Borough, BBL, Ownership
+ *   capacity_projects.csv (optional -- powers the funded-construction panel):
+ *     Project ID, Project Name, Project Type, DBN, Matched School Name, Seats,
+ *     Anticipated Opening, Address, Borough, District, Latitude, Longitude, BBL
  *
  * Run with: npm run load:data
  */
@@ -67,6 +70,7 @@ DROP TABLE IF EXISTS space_deficit_schools;
 DROP TABLE IF EXISTS room_inventory;
 DROP TABLE IF EXISTS room_capacity_detail;
 DROP TABLE IF EXISTS parcels;
+DROP TABLE IF EXISTS capacity_projects;
 DROP TABLE IF EXISTS building_utilization;
 DROP TABLE IF EXISTS schools;
 
@@ -152,8 +156,37 @@ CREATE TABLE parcels (
   ownership TEXT
 );
 
+-- SCA capacity projects in process (dtmw-avzj). Deliberately NOT foreign-keyed
+-- to schools: dbn is null for every new-school build (they have no school yet)
+-- and for any expansion the matcher couldn't attribute, and those rows still
+-- belong in the table as area projects.
+CREATE TABLE capacity_projects (
+  project_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  -- 'expansion' (an addition/annex on a school that already exists) or
+  -- 'new_school' (a new building, named for its address). The UI shows these
+  -- very differently -- one adds seats to THIS school, the other to the area.
+  project_type TEXT NOT NULL,
+  -- The expanded school, when resolved. Null on new-school builds.
+  dbn TEXT,
+  matched_school_name TEXT,
+  seats INTEGER NOT NULL,
+  anticipated_opening TEXT,
+  address TEXT,
+  borough TEXT,
+  -- Text, not INTEGER: the SCA file uses citywide pseudo-districts ("78M", "78Q")
+  -- alongside the numeric geographic districts.
+  district TEXT,
+  -- Nullable: two rows publish no coordinates, so they can't take part in the
+  -- distance-based "nearby projects" search.
+  lat REAL,
+  lng REAL,
+  bbl TEXT
+);
+
 CREATE INDEX idx_class_size_dbn ON class_size_records(dbn);
 CREATE INDEX idx_room_inventory_building ON room_inventory(building_id);
+CREATE INDEX idx_capacity_projects_dbn ON capacity_projects(dbn);
 `);
 
 // ---- schools ----
@@ -300,5 +333,42 @@ if (existsSync(join(RAW_DIR, "nearby_parcels.csv"))) {
   parcelCount = parcels.length;
 }
 
-console.log(`Loaded ${locations.length} schools, ${classSizes.length} class size records, ${buildings.length} buildings, ${deficits.length} deficit rows, ${rooms.length} room rows, ${capacityDetailCount} room capacity detail rows, ${parcelCount} parcels into ${DB_PATH}`);
+// ---- capacity_projects (optional) ----
+let projectCount = 0;
+if (existsSync(join(RAW_DIR, "capacity_projects.csv"))) {
+  const projects = readCsv("capacity_projects.csv");
+  const insertProject = db.prepare(
+    `INSERT OR REPLACE INTO capacity_projects
+       (project_id, name, project_type, dbn, matched_school_name, seats, anticipated_opening,
+        address, borough, district, lat, lng, bbl)
+     VALUES (@project_id, @name, @project_type, @dbn, @matched_school_name, @seats,
+             @anticipated_opening, @address, @borough, @district, @lat, @lng, @bbl)`
+  );
+  withTransaction(() => {
+    for (const r of projects) {
+      const lat = Number(r["Latitude"]);
+      const lng = Number(r["Longitude"]);
+      insertProject.run({
+        project_id: r["Project ID"],
+        name: r["Project Name"],
+        project_type: r["Project Type"],
+        dbn: r["DBN"] || null,
+        matched_school_name: r["Matched School Name"] || null,
+        seats: Number(r["Seats"]) || 0,
+        anticipated_opening: r["Anticipated Opening"] || null,
+        address: r["Address"] || null,
+        borough: r["Borough"] || null,
+        district: r["District"] || null,
+        // Blank coordinates stay NULL rather than becoming 0/0, which would
+        // place the project in the Gulf of Guinea and match every school.
+        lat: r["Latitude"] && Number.isFinite(lat) ? lat : null,
+        lng: r["Longitude"] && Number.isFinite(lng) ? lng : null,
+        bbl: r["BBL"] || null,
+      });
+    }
+  });
+  projectCount = projects.length;
+}
+
+console.log(`Loaded ${locations.length} schools, ${classSizes.length} class size records, ${buildings.length} buildings, ${deficits.length} deficit rows, ${rooms.length} room rows, ${capacityDetailCount} room capacity detail rows, ${parcelCount} parcels, ${projectCount} capacity projects into ${DB_PATH}`);
 db.close();

@@ -10,7 +10,8 @@
     "gen:mock": "tsx scripts/generate-mock-data.ts",
     "load:data": "tsx scripts/load-data.ts",
     "setup:data": "npm run gen:mock && npm run load:data",
-    "fetch:real": "tsx scripts/fetch-nyc-data.ts"
+    "fetch:real": "tsx scripts/fetch-nyc-data.ts",
+    "fetch:projects": "tsx scripts/fetch-capacity-projects.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",

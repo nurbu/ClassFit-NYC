@@ -9,6 +9,8 @@ import type {
   PhysicalCapacityCheck,
   CapacityDetailRow,
   Parcel,
+  CapacityProject,
+  NearbyCapacityProject,
 } from "./types";
 
 /**
@@ -397,6 +399,69 @@ export function findSiteCandidates(dbn: string, radiusMiles = 2): SiteCandidate[
     }))
     .filter((p) => p.distanceMiles <= radiusMiles)
     .sort((a, b) => a.distanceMiles - b.distanceMiles);
+}
+
+export interface SchoolCapacityProjects {
+  /**
+   * Funded expansions of THIS school -- an addition or annex whose seats land
+   * in this building. Usually 0 or 1; the Harbor School has two.
+   */
+  direct: CapacityProject[];
+  /** Total seats across `direct`. */
+  directSeats: number;
+  /**
+   * Other in-flight projects within `radiusMiles` -- new school buildings, and
+   * expansions of neighbouring schools. These add seats to the area and can
+   * relieve enrollment pressure indirectly, but none of them are seats for this
+   * school, and the UI says so explicitly.
+   */
+  nearby: NearbyCapacityProject[];
+}
+
+/**
+ * Feature: funded construction already in the SCA pipeline.
+ *
+ * The counterpart to findSiteCandidates: those are speculative city-owned lots
+ * that someone would still have to fund, site, and approve, whereas these are
+ * projects with a seat count and an opening year already attached.
+ *
+ * Split deliberately into `direct` and `nearby`. Conflating them would be the
+ * one genuinely misleading thing this panel could do -- "487 new seats" reads
+ * very differently to a principal depending on whether the seats are landing in
+ * their building or in a new school half a mile away.
+ *
+ * Rows without coordinates (two, in the current data) can still appear in
+ * `direct`, since that link comes from the project name, but they cannot take
+ * part in the distance search.
+ */
+export function findCapacityProjects(dbn: string, radiusMiles = 3): SchoolCapacityProjects {
+  const db = getDb();
+  const origin = db.prepare(`SELECT * FROM schools WHERE dbn = ?`).get(dbn) as unknown as School | undefined;
+  if (!origin) return { direct: [], directSeats: 0, nearby: [] };
+
+  const all = (
+    db.prepare(`SELECT * FROM capacity_projects`).all() as unknown as CapacityProject[]
+  ).map((p) => ({ ...p })); // node:sqlite rows are null-prototype -- see getSchoolDetail
+
+  const direct = all
+    .filter((p) => p.dbn === origin.dbn)
+    .sort((a, b) => (a.anticipated_opening ?? "").localeCompare(b.anticipated_opening ?? ""));
+  const directIds = new Set(direct.map((p) => p.project_id));
+
+  const nearby = all
+    .filter((p) => !directIds.has(p.project_id) && p.lat != null && p.lng != null)
+    .map((p) => ({
+      ...p,
+      distanceMiles: Math.round(distanceMiles(origin.lat, origin.lng, p.lat!, p.lng!) * 10) / 10,
+    }))
+    .filter((p) => p.distanceMiles <= radiusMiles)
+    .sort((a, b) => a.distanceMiles - b.distanceMiles);
+
+  return {
+    direct,
+    directSeats: direct.reduce((sum, p) => sum + p.seats, 0),
+    nearby,
+  };
 }
 
 /** Haversine distance in miles between two lat/lng points. */
